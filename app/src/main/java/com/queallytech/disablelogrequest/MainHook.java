@@ -14,15 +14,17 @@ public class MainHook implements IXposedHookLoadPackage {
 
     private static Object mActivityManagerInternal;
     private static Object mLogcatManagerService;
+    private static Prefs mPrefs = new Prefs(null);
+
     @Override
     public void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
         Log.d(LOG_TAG, "handleLoadPackage()");
         if (lpparam.packageName.equals("android")) {
-            try{
+            try {
                 Class<?> logAccessClient = XposedHelpers.findClass(LOGCAT_PACKAGE + "$LogAccessClient", lpparam.classLoader);
 
                 XposedHelpers.findAndHookMethod(LOGCAT_PACKAGE, lpparam.classLoader, "onStart", onStartHook());
-                XposedHelpers.findAndHookMethod(LOGCAT_PACKAGE, lpparam.classLoader, "processNewLogAccessRequest",logAccessClient, processNewLogAccessRequestHook());
+                XposedHelpers.findAndHookMethod(LOGCAT_PACKAGE, lpparam.classLoader, "processNewLogAccessRequest", logAccessClient, processNewLogAccessRequestHook());
             } catch (Throwable t) {
                 Log.e(LOG_TAG, "Failed to hook LogcatManagerService methods", t);
             }
@@ -58,9 +60,14 @@ public class MainHook implements IXposedHookLoadPackage {
                     int uid = XposedHelpers.getIntField(client, "mUid");
                     String packageName = (String) XposedHelpers.getObjectField(client, "mPackageName");
 
-                    XposedHelpers.callMethod(mLogcatManagerService,"onAccessApprovedForClient", client);
-
-                    Log.i(LOG_TAG, "bypass for package=" + packageName + " uid=" + uid);
+                    mPrefs.reload();
+                    boolean logsDisabled = mPrefs.isLogsDisabled();
+                    if (logsDisabled) {
+                        XposedHelpers.callMethod(mLogcatManagerService, "onAccessDeclinedForClient", client);
+                    } else {
+                        XposedHelpers.callMethod(mLogcatManagerService, "onAccessApprovedForClient", client);
+                    }
+                    Log.i(LOG_TAG, "bypass for package=" + packageName + " uid=" + uid + " logsDisabled=" + logsDisabled);
                     param.setResult(null);
                 } catch (Throwable t) {
                     Log.e(LOG_TAG, "Failed to override before processNewLogAccessRequest()", t);
