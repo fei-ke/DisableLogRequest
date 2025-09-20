@@ -1,5 +1,6 @@
 package com.queallytech.disablelogrequest;
 
+import android.os.Message;
 import android.util.Log;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
@@ -21,10 +22,10 @@ public class MainHook implements IXposedHookLoadPackage {
         Log.d(LOG_TAG, "handleLoadPackage()");
         if (lpparam.packageName.equals("android")) {
             try {
-                Class<?> logAccessClient = XposedHelpers.findClass(LOGCAT_PACKAGE + "$LogAccessClient", lpparam.classLoader);
-
                 XposedHelpers.findAndHookMethod(LOGCAT_PACKAGE, lpparam.classLoader, "onStart", onStartHook());
-                XposedHelpers.findAndHookMethod(LOGCAT_PACKAGE, lpparam.classLoader, "processNewLogAccessRequest", logAccessClient, processNewLogAccessRequestHook());
+
+                Class<?> handlerClass = XposedHelpers.findClass(LOGCAT_PACKAGE + "$LogAccessRequestHandler", lpparam.classLoader);
+                XposedHelpers.findAndHookMethod(handlerClass, "handleMessage", Message.class, processNewLogAccessRequestHook());
             } catch (Throwable t) {
                 Log.e(LOG_TAG, "Failed to hook LogcatManagerService methods", t);
             }
@@ -52,9 +53,12 @@ public class MainHook implements IXposedHookLoadPackage {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                 try {
+                    Message msg = (Message) param.args[0];
+                    if (msg.what != 0) return;
+
                     Log.d(LOG_TAG, "hook before processNewLogAccessRequest()");
 
-                    Object client = param.args[0];
+                    Object client = XposedHelpers.callMethod(mLogcatManagerService, "getClientForRequest", msg.obj);
                     if (client == null || mActivityManagerInternal == null) return;
 
                     int uid = XposedHelpers.getIntField(client, "mUid");
